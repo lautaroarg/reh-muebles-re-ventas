@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+node_modules/
+*-copia-*.json
+*-recuperacion-*.json
+backups/
+.DS_Store
+Thumbs.db
