@@ -2,11 +2,11 @@
 
 Aplicación independiente de FlowSystem, adaptada del HTML original de 4Hammer y de la referencia visual de esta marca.
 
-**Estado actual: aplicación local funcional con conexión a Supabase preparada, pendiente de activar en un proyecto nuevo. No se creó ningún recurso ni se contrató un plan pago.**
+**Estado actual: conexión configurada al proyecto Supabase `tdykpnkndbtevwidgdtj`, compartido por HG y REH. El acceso requiere un usuario habilitado y pruebas de guardado autenticado antes de usarlo con registros reales. No se modificó ningún plan ni se activaron cargos desde esta entrega.**
 
 ## Usar
 
-Descargá el repositorio y abrí `index.html` en un navegador actualizado. No necesita instalación ni bibliotecas externas. También puede servirse como sitio estático; el guardado sigue siendo local hasta integrar el backend.
+Descargá el repositorio y abrí `index.html` en un navegador actualizado o servilo como sitio estático mediante HTTPS. No necesita instalar bibliotecas externas. Ingresá con el correo y contraseña creados en Authentication del proyecto, y con la membresía de esta marca ya asignada. Las contraseñas se eligen en Supabase; no se guardan en el HTML ni en GitHub.
 
 Tiene exactamente tres pantallas:
 
@@ -22,13 +22,13 @@ Importes en ARS. Ingresá `125000,50` o `125000.50`, sin separador de miles. Pod
 
 Usá **Descargar copia** regularmente. **Importar copia** agrega registros de esta marca, omite duplicados idénticos y rechaza conflictos. Las copias incluyen el historial completo, independientemente del filtro del dashboard. **Ver ejemplo** solo muestra datos ficticios, sin guardarlos.
 
-La clave local es `flowsystem.reh-muebles-re.v1`. No hay conexión con 4Hammer ni con cuentas publicitarias. Los HTML y GitHub guardan el programa, no las ventas cargadas en el navegador.
+La conexión usa únicamente el proyecto `tdykpnkndbtevwidgdtj` y una clave publicable. No hay conexión con 4Hammer ni con cuentas publicitarias. Los HTML y GitHub guardan el programa; los registros de una sesión autenticada se guardan en Supabase tras la confirmación del servidor. Una clave publicable no habilita por sí sola acceso a los datos.
 
-Los datos dependen del perfil del navegador y del origen o ubicación del archivo. Exportá antes de mover el archivo, cambiar de navegador o pasar de archivo local a un sitio web. Borrar los datos del navegador o usar incógnito puede hacer perder registros. La separación local evita mezclas accidentales, pero no reemplaza usuarios y permisos.
+Si usaste una versión local anterior, sus registros no se migran automáticamente. Antes de reemplazarla, descargá una copia desde esa versión. Después de ingresar en la aplicación conectada, importá exclusivamente la copia de esta marca. La clave local anterior era `flowsystem.reh-muebles-re.v1`; no se borra ni se usa como sustituto silencioso si falla la nube.
 
 ## Guardar en la nube
 
-La arquitectura y los pasos de activación están en [NUBE.md](NUBE.md). Para evitar sumar un costo mensual, se propone **un único proyecto nuevo FlowSystem para HG y REH**, con permisos de base de datos por marca y usuario, separado de marcobarber. Subir el código a GitHub no activa automáticamente esa conexión.
+La arquitectura y los pasos de activación están en [NUBE.md](NUBE.md). Se utiliza **un único proyecto FlowSystem para HG y REH**, con permisos de base de datos por marca y usuario, separado de marcobarber. La configuración está incluida; todavía se deben habilitar usuarios y comprobar el guardado con sesión real. La verificación sin sesión devolvió HTTP 401 con código PostgreSQL 42501 en ambas tablas, y autenticación respondió HTTP 200 con la clave publicable.
 
 ## Verificar
 
