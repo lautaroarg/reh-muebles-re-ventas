@@ -166,14 +166,22 @@ test('descripciones se guardan como texto, con límites de tamaño y campos cono
   assert.throws(() => Core.validateRecord({...record, description: 'x'.repeat(241)}, 'sales', HG));
 });
 for (const filename of ['index.html']) {
-  test(filename + ': scripts válidos, tres pantallas, sin red ni URL heredada', () => {
+  test(filename + ': scripts válidos, tres pantallas y conexión declarada sin URL heredada', () => {
     const html = fs.readFileSync(path.join(__dirname, filename), 'utf8');
     assert.ok(!/__\w+__/.test(html));
-    assert.ok(!/script\.google|googleapis|cdnjs|https?:\/\//i.test(html));
-    assert.ok(html.includes("connect-src 'none'"));
+    assert.ok(!/script\.google|googleapis|cdnjs/i.test(html));
     assert.equal((html.match(/class="nav-item/g) || []).length, 3);
     const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-    assert.equal(scripts.length, 3);
+    assert.equal(scripts.length, 4);
+    const config = vm.runInNewContext(scripts[0][1] + '; BRAND');
+    if (config.cloud.url) {
+      assert.ok(/^https:\/\/[a-z0-9]+\.supabase\.co$/.test(config.cloud.url));
+      assert.ok(config.cloud.publishableKey.startsWith('sb_publishable_'));
+      assert.ok(html.includes('connect-src ' + config.cloud.url + ';'));
+    } else {
+      assert.ok(!/https?:\/\//i.test(html));
+      assert.ok(html.includes("connect-src 'none'"));
+    }
     scripts.forEach((match, index) => new vm.Script(match[1], {filename: filename + ':' + index}));
   });
 }

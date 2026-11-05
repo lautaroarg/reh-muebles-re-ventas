@@ -2,7 +2,7 @@
 
 Aplicación independiente de FlowSystem, adaptada del HTML original de 4Hammer y de la referencia visual de esta marca.
 
-**Estado actual: versión funcional con almacenamiento local. La conexión a una base de datos en la nube todavía no está implementada.**
+**Estado actual: aplicación local funcional con conexión a Supabase preparada, pendiente de activar en un proyecto nuevo. No se creó ningún recurso ni se contrató un plan pago.**
 
 ## Usar
 
@@ -28,17 +28,17 @@ Los datos dependen del perfil del navegador y del origen o ubicación del archiv
 
 ## Guardar en la nube
 
-La arquitectura y los pasos pendientes están en [NUBE.md](NUBE.md). Se propone un proyecto de Supabase nuevo e independiente para esta marca, con acceso autenticado. Subir el código a GitHub o habilitar alojamiento estático no activa ese backend.
+La arquitectura y los pasos de activación están en [NUBE.md](NUBE.md). Para evitar sumar un costo mensual, se propone **un único proyecto nuevo FlowSystem para HG y REH**, con permisos de base de datos por marca y usuario, separado de marcobarber. Subir el código a GitHub no activa automáticamente esa conexión.
 
 ## Verificar
 
 Con Node.js instalado, ejecutá:
 
 ```text
-node --test verificar.cjs
+node --test verificar.cjs nube/verificar-nube.cjs
 ```
 
-La suite incluye **22 pruebas** sobre el código embebido en `index.html`: fórmulas, importes, fechas, filtros, guardado, errores, copias, separación de marcas y sintaxis. El almacenamiento usado por las pruebas es simulado; no modifica tu historial. Node.js no es necesario para usar la aplicación.
+Las suites incluyen **38 pruebas** sobre el código embebido en `index.html`: fórmulas, importes, fechas, filtros, errores, copias, separación, autenticación y guardado con control de cambios simultáneos. El servidor y el almacenamiento de las pruebas son simulados; no modifican tu historial ni demuestran por sí solos que las políticas RLS estén activas en un proyecto real. Node.js no es necesario para usar la aplicación.
 
 Los flujos de alta de ventas y gastos, edición, eliminación y recuperación, exportación/importación y rechazo de copias de otra marca se comprobaron en navegador por HTTP local. La apertura `file://` quedó fuera de la prueba automatizada por una restricción del navegador integrado. No se certificó una prueba visual en móvil real.
 

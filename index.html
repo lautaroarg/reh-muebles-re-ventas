@@ -19,6 +19,7 @@ html[data-brand="reh-muebles-re"]{--accent:#df5966;--accent-dark:#a72d3a;--tint:
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
 #toast.visible{pointer-events:auto}
+.topbar-right{flex-wrap:wrap;justify-content:flex-end}.topbar-right .actions{gap:5px}
 </style>
 </head>
 <body>
@@ -42,7 +43,7 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
 <dialog id="confirm-dialog" aria-labelledby="dialog-title"><form method="dialog"><span class="eyebrow">CONFIRMAR ACCIÓN</span><h2 id="dialog-title"></h2><p id="dialog-message"></p><div class="dialog-actions"><button class="button secondary" value="cancel">Cancelar</button><button class="button primary" value="confirm" id="dialog-confirm">Confirmar</button></div></form></dialog>
 <input type="file" id="backup-file" accept=".json,application/json" hidden>
 <noscript>Activá JavaScript en el navegador para registrar ventas y publicidad.</noscript>
-<script>const BRAND = {"id": "reh-muebles-re", "name": "REH Muebles Re", "short": "REH", "storageKey": "flowsystem.reh-muebles-re.v1", "tagline": "Muebles que hacen hogar", "example": "Juego de comedor de seis sillas", "categories": ["Sillones", "Juegos de comedor", "Muebles a medida", "Otros"]};</script>
+<script>const BRAND = {"id": "reh-muebles-re", "name": "REH Muebles Re", "short": "REH", "storageKey": "flowsystem.reh-muebles-re.v1", "tagline": "Muebles que hacen hogar", "example": "Juego de comedor de seis sillas", "categories": ["Sillones", "Juegos de comedor", "Muebles a medida", "Otros"], "cloud": {"url": "", "publishableKey": ""}};</script>
 <script>(function (root) {
   'use strict';
   const SOURCES = ['Meta', 'Google', 'Orgánico', 'Recomendación', 'Otro'];
@@ -162,11 +163,140 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
   else root.FlowCore = Object.freeze(api);
 })(globalThis);
 </script>
+<script>(function (root) {
+  'use strict';
+  function create(config, brand, core, dependencies = {}) {
+    const origin = new URL(config.url);
+    if (origin.protocol !== 'https:' || !/^[a-z0-9]+\.supabase\.co$/.test(origin.hostname) || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || origin.port) throw new Error('La URL debe ser el origen HTTPS de un proyecto de Supabase.');
+    if (typeof config.publishableKey !== 'string' || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(config.publishableKey)) throw new Error('Usá una clave publicable de Supabase, nunca una clave secreta.');
+    const fetcher = dependencies.fetch || root.fetch.bind(root);
+    const storage = dependencies.storage || root.sessionStorage;
+    const clock = dependencies.now || Date.now;
+    const sessionKey = 'flowsystem.auth.' + origin.hostname + '.' + brand.id;
+    let refreshPending = null;
+    function session() {
+      try {
+        const saved = JSON.parse(storage.getItem(sessionKey) || 'null');
+        return saved && typeof saved.access_token === 'string' && typeof saved.refresh_token === 'string' && Number.isFinite(saved.expires_at) ? saved : null;
+      } catch { return null; }
+    }
+    function clearSession() { storage.removeItem(sessionKey); }
+    function remember(value) {
+      if (!value || typeof value.access_token !== 'string' || typeof value.refresh_token !== 'string' || !Number.isFinite(value.expires_in) || value.expires_in <= 0) throw new Error('El servidor no devolvió una sesión válida.');
+      const saved = {access_token: value.access_token, refresh_token: value.refresh_token, expires_at: clock() + value.expires_in * 1000};
+      storage.setItem(sessionKey, JSON.stringify(saved));
+      return saved;
+    }
+    async function send(route, options = {}, token) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let response;
+      try {
+        response = await fetcher(new URL(route, origin).href, {method: options.method || 'GET', headers: {apikey: config.publishableKey, 'Content-Type': 'application/json', ...(token ? {Authorization: 'Bearer ' + token} : {}), ...(options.headers || {})}, ...(options.body === undefined ? {} : {body: JSON.stringify(options.body)}), signal: controller.signal, cache: 'no-store', credentials: 'omit'});
+      } catch {
+        throw new Error('No se pudo confirmar la operación en la nube. Revisá la conexión y actualizá el historial antes de volver a cargarla.');
+      } finally { clearTimeout(timer); }
+      const text = await response.text();
+      let body = null;
+      if (text) {
+        try { body = JSON.parse(text); }
+        catch { throw new Error('El servidor devolvió una respuesta no válida. No se confirmó el guardado.'); }
+      }
+      if (!response.ok) {
+        const error = new Error(response.status === 401 ? 'La sesión venció. Volvé a iniciar sesión.' : response.status === 400 && route.includes('/token') ? 'No se pudo iniciar sesión. Revisá el correo y la contraseña.' : response.status === 403 ? 'Tu usuario no tiene permiso para esta operación.' : 'La nube rechazó la operación. No se confirmó el guardado.');
+        error.status = response.status;
+        throw error;
+      }
+      return body;
+    }
+    async function refresh(force = false) {
+      const current = session();
+      if (!current) throw new Error('Iniciá sesión para acceder a los registros.');
+      if (!force && current.expires_at > clock() + 30000) return current;
+      if (!refreshPending) refreshPending = (async () => {
+        try { return remember(await send('/auth/v1/token?grant_type=refresh_token', {method: 'POST', body: {refresh_token: current.refresh_token}})); }
+        catch (error) {
+          if (error.status === 400 || error.status === 401) clearSession();
+          throw error;
+        } finally { refreshPending = null; }
+      })();
+      return refreshPending;
+    }
+    async function authorized(route, options) {
+      const current = await refresh();
+      try { return await send(route, options, current.access_token); }
+      catch (error) {
+        if (error.status !== 401) throw error;
+        const renewed = await refresh(true);
+        return send(route, options, renewed.access_token);
+      }
+    }
+    async function signIn(email, password) {
+      clearSession();
+      const value = await send('/auth/v1/token?grant_type=password', {method: 'POST', body: {email: email.trim(), password}});
+      remember(value);
+      try { await authorized('/auth/v1/user'); }
+      catch (error) { clearSession(); throw error; }
+    }
+    async function signOut() {
+      const current = session();
+      try { if (current) await send('/auth/v1/logout?scope=local', {method: 'POST'}, current.access_token); }
+      finally { clearSession(); }
+    }
+    function route(revision) {
+      const query = new URLSearchParams({select: 'document,revision', client_id: 'eq.' + brand.id});
+      if (revision !== undefined) query.set('revision', 'eq.' + revision);
+      return '/rest/v1/flowsystem_data?' + query;
+    }
+    function normalize(rows) {
+      if (!Array.isArray(rows) || rows.length !== 1 || !Number.isSafeInteger(rows[0].revision) || rows[0].revision < 1) throw new Error('No se encontró un espacio autorizado para esta marca. Pedí que habiliten tu usuario.');
+      return {data: core.validateData(rows[0].document, brand), revision: rows[0].revision};
+    }
+    async function snapshot() { return normalize(await authorized(route())); }
+    async function read() { return (await snapshot()).data; }
+    async function transact(change) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const current = await snapshot();
+        const next = JSON.parse(JSON.stringify(current.data));
+        change(next);
+        const clean = core.validateData(next, brand);
+        if (JSON.stringify(clean) === JSON.stringify(current.data)) return clean;
+        let rows;
+        try { rows = await authorized(route(current.revision), {method: 'PATCH', headers: {Prefer: 'return=representation'}, body: {document: clean}}); }
+        catch (error) {
+          try {
+            const confirmed = await snapshot();
+            if (JSON.stringify(confirmed.data) === JSON.stringify(clean)) return confirmed.data;
+          } catch {}
+          throw error;
+        }
+        if (Array.isArray(rows) && rows.length === 0) continue;
+        const saved = normalize(rows).data;
+        if (JSON.stringify(saved) !== JSON.stringify(clean)) throw new Error('La respuesta de guardado no coincide con los cambios enviados. Actualizá el historial.');
+        return saved;
+      }
+      throw new Error('Hubo cambios simultáneos. Actualizá la vista y volvé a intentar; tus cambios no se confirmaron.');
+    }
+    return Object.freeze({session, read, transact, signIn, signOut, clearSession, sessionKey});
+  }
+  const api = {create};
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.FlowCloud = Object.freeze(api);
+})(globalThis);
+</script>
 <script>(function () {
   'use strict';
   const Core = window.FlowCore;
   const content = document.getElementById('main-content');
+  const cloudEnabled = Boolean(BRAND.cloud?.url || BRAND.cloud?.publishableKey);
+  let cloud = null;
+  let configIssue = '';
+  try { if (cloudEnabled) cloud = window.FlowCloud.create(BRAND.cloud, BRAND, Core); }
+  catch (error) { configIssue = error.message; }
   const state = {view: 'dashboard', data: Core.empty(BRAND.id), preset: 'all', bounds: {start: '', end: ''}, showCustom: false, demo: false, editing: null, issue: '', search: ''};
+  state.loading = false;
+  state.busy = false;
+  const storageLabel = cloudEnabled ? 'la nube' : 'este navegador';
   const labels = {dashboard: 'Dashboard', sales: 'Registrar ventas', spend: 'Gasto publicitario'};
   const periods = {all: 'Todo el historial', month: 'Este mes', quarter: 'Este trimestre', year: 'Este año', custom: 'Personalizado'};
   const moneyFormatter = new Intl.NumberFormat('es-AR', {style: 'currency', currency: 'ARS', maximumFractionDigits: 2});
@@ -200,27 +330,78 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
   }
   function storageStatus() {
     const element = document.querySelector('.local-mark');
-    element.textContent = state.issue ? '● Revisar almacenamiento' : '● Guardado local';
+    element.textContent = state.issue ? '● Revisar almacenamiento' : cloudEnabled ? (cloud?.session() ? '● Guardado en la nube' : '● Iniciar sesión') : '● Guardado local';
+    element.title = cloudEnabled ? 'Conexión al espacio autorizado de esta marca' : 'Sin conexión a un servidor';
     element.classList.toggle('error', Boolean(state.issue));
+    if (cloudEnabled) {
+      document.querySelector('.local-pill').textContent = 'Espacio en la nube';
+      document.querySelector('.sidebar-bottom p').textContent = 'Acceso por usuario. Solo ves las marcas que te habilitaron.';
+      document.querySelector('.page-footer span:last-child').textContent = 'Datos en la nube · Actualizá para ver cambios de otros dispositivos';
+    }
+    let cloudActions = document.getElementById('cloud-actions');
+    if (cloudEnabled && !cloudActions) {
+      cloudActions = document.createElement('span');
+      cloudActions.id = 'cloud-actions';
+      cloudActions.className = 'actions';
+      document.querySelector('.topbar-right').appendChild(cloudActions);
+    }
+    if (cloudActions) {
+      cloudActions.innerHTML = cloud?.session() ? '<button class="button secondary small" id="cloud-refresh">Actualizar</button><button class="button secondary small" id="cloud-logout">Salir</button>' : '';
+      document.getElementById('cloud-refresh')?.addEventListener('click', async () => {
+        if (state.busy || state.loading) return;
+        if (state.view !== 'dashboard' && !await requestConfirmation('Actualizar registros', 'Se descartará lo que todavía no guardaste en el formulario.', 'Actualizar')) return;
+        state.editing = null;
+        await load();
+        render();
+      });
+      document.getElementById('cloud-logout')?.addEventListener('click', async () => {
+        if (state.busy || state.loading) return;
+        state.busy = true;
+        try { await cloud.signOut(); }
+        catch { showToast('Se cerró la sesión de esta pestaña. No se pudo confirmar la revocación remota.'); }
+        state.busy = false;
+        state.data = Core.empty(BRAND.id);
+        state.editing = null;
+        state.issue = '';
+        state.demo = false;
+        storageStatus();
+        render();
+      });
+    }
   }
-  function load() {
+  async function load() {
+    if (configIssue) { state.issue = configIssue; storageStatus(); return; }
+    state.loading = true;
     try {
-      state.data = Core.read(window.localStorage, BRAND);
-      const probe = BRAND.storageKey + '.probe';
-      localStorage.setItem(probe, 'ok');
-      localStorage.removeItem(probe);
+      if (cloud) state.data = cloud.session() ? await cloud.read() : Core.empty(BRAND.id);
+      else {
+        state.data = Core.read(window.localStorage, BRAND);
+        const probe = BRAND.storageKey + '.probe';
+        localStorage.setItem(probe, 'ok');
+        localStorage.removeItem(probe);
+      }
       state.issue = '';
     } catch (error) {
-      state.issue = 'No se pudo abrir el almacenamiento local. ' + error.message + ' Los datos existentes se conservan; la carga está bloqueada hasta resolverlo.';
+      if (cloudEnabled) state.data = Core.empty(BRAND.id);
+      state.issue = 'No se pudo abrir el almacenamiento. ' + error.message + ' La carga está bloqueada hasta resolverlo.';
     }
+    state.loading = false;
     storageStatus();
   }
-  function commit(change) {
+  async function commit(change) {
     if (state.issue) throw new Error('El guardado está bloqueado. Revisá el aviso de almacenamiento.');
+    if (state.busy || state.loading) throw new Error('Esperá a que termine la operación anterior.');
+    state.busy = true;
+    const buttons = [...document.querySelectorAll('button')].filter(button => !button.disabled);
+    buttons.forEach(button => button.disabled = true);
     try {
-      state.data = Core.transact(localStorage, BRAND, change);
+      state.data = cloud ? await cloud.transact(change) : Core.transact(localStorage, BRAND, change);
     } catch (error) {
       throw new Error('No se guardaron cambios. ' + error.message);
+    } finally {
+      state.busy = false;
+      buttons.forEach(button => button.disabled = false);
+      storageStatus();
     }
   }
   function requestConfirmation(title, message, confirmText) {
@@ -250,6 +431,7 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
   function notice() {
     if (state.issue) return `<div class="notice error" role="alert"><div><strong>Almacenamiento no disponible.</strong> ${esc(state.issue)}</div><button class="button secondary small" data-action="retry">Reintentar</button></div>`;
     if (state.demo) return '<div class="notice demo"><div><strong>Estás viendo datos ficticios.</strong> Este ejemplo no modifica tus registros.</div><button class="button secondary small" data-action="exit-demo">Volver a mis datos</button></div>';
+    if (cloudEnabled) return '<div class="notice"><div><strong>Datos en la nube.</strong> Los cambios se confirman después de guardarse. Usá Actualizar para ver cargas de otro dispositivo.</div></div>';
     return '<div class="notice"><div><strong>Modo local.</strong> Tus registros quedan en este navegador. Descargá una copia para respaldarlos.</div><span aria-hidden="true">↙</span></div>';
   }
   function pageHeading(title, subtitle, actions = '') {
@@ -353,16 +535,17 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
       if (!await requestConfirmation(kind === 'sales' ? 'Eliminar esta venta' : 'Eliminar este gasto', `${formatDate(record.date)} · ${money(record.amountCents)}\nEl registro se quitará de los cálculos. Podés deshacer la acción inmediatamente después.`, 'Eliminar registro')) return;
       try {
         let deleted;
-        commit(next => {
+        await commit(next => {
           deleted = next[kind].find(item => item.id === record.id);
           if (!deleted) throw new Error('El registro ya fue eliminado en otra pestaña.');
+          if (JSON.stringify(deleted) !== JSON.stringify(record)) throw new Error('El registro cambió en otro dispositivo. Actualizá el historial antes de eliminarlo.');
           next[kind] = next[kind].filter(item => item.id !== record.id);
         });
         if (state.editing === record.id) state.editing = null;
         render();
-        showToast('Registro eliminado.', () => {
+        showToast('Registro eliminado.', async () => {
           try {
-            commit(next => {
+            await commit(next => {
               if (next[kind].some(item => item.id === deleted.id)) throw new Error('El registro ya está presente.');
               next[kind].push(deleted);
             });
@@ -387,26 +570,31 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
       document.getElementById('history-list').innerHTML = recordsMarkup(kind);
       bindRecords(kind);
     });
-    document.getElementById('record-form').addEventListener('submit', event => {
+    document.getElementById('record-form').addEventListener('submit', async event => {
       event.preventDefault();
       const form = event.target;
       const values = new FormData(form);
       try {
-        const record = {id: editing ? editing.id : crypto.randomUUID(), date: values.get('date'), amountCents: Core.parseAmount(values.get('amount'))};
+        if (!editing && !form.dataset.recordId) form.dataset.recordId = crypto.randomUUID();
+        const record = {id: editing ? editing.id : form.dataset.recordId, date: values.get('date'), amountCents: Core.parseAmount(values.get('amount'))};
         if (sale) Object.assign(record, {category: values.get('category'), source: values.get('source'), description: String(values.get('description')).trim()});
         else Object.assign(record, {platform: values.get('platform'), notes: String(values.get('notes')).trim()});
         const clean = Core.validateRecord(record, kind, BRAND);
-        commit(next => {
+        await commit(next => {
           if (editing) {
             const index = next[kind].findIndex(item => item.id === editing.id);
             if (index < 0 || JSON.stringify(next[kind][index]) !== JSON.stringify(editing)) throw new Error('El registro cambió en otra pestaña. Volvé a abrirlo antes de editar.');
             next[kind][index] = clean;
-          } else next[kind].push(clean);
+          } else {
+            const previous = next[kind].find(item => item.id === clean.id);
+            if (previous && JSON.stringify(previous) !== JSON.stringify(clean)) throw new Error('El registro ya existe con otros valores. Actualizá el historial antes de continuar.');
+            if (!previous) next[kind].push(clean);
+          }
         });
         state.editing = null;
         state.search = '';
         render();
-        showToast(editing ? 'Cambios guardados en este navegador.' : sale ? 'Venta registrada en este navegador.' : 'Gasto registrado en este navegador.');
+        showToast(editing ? 'Cambios guardados en ' + storageLabel + '.' : (sale ? 'Venta registrada en ' : 'Gasto registrado en ') + storageLabel + '.');
       } catch (error) { document.getElementById('form-error').textContent = error.message; }
     });
   }
@@ -430,17 +618,18 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
       }
       render();
     }));
-    content.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {
+    content.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', async () => {
+      if (state.busy || state.loading) return;
       const action = button.dataset.action;
       if (action === 'demo' || action === 'exit-demo') { state.demo = action === 'demo'; render(); }
       if (action === 'cancel-edit') { state.editing = null; render(); }
-      if (action === 'retry') { load(); render(); }
+      if (action === 'retry') { await load(); render(); }
       if (action === 'import') document.getElementById('backup-file').click();
       if (action === 'export') {
         try {
-          const raw = localStorage.getItem(BRAND.storageKey);
+          const raw = cloudEnabled ? null : localStorage.getItem(BRAND.storageKey);
           if (state.issue && raw !== null) download(raw, BRAND.id + '-recuperacion-' + today() + '.json');
-          else download({...Core.read(localStorage, BRAND), exportedAt: new Date().toISOString()}, BRAND.id + '-copia-' + today() + '.json');
+          else download({...(cloud ? await cloud.read() : Core.read(localStorage, BRAND)), exportedAt: new Date().toISOString()}, BRAND.id + '-copia-' + today() + '.json');
           showToast('Copia completa preparada para descargar.');
         } catch (error) { showToast('No se pudo descargar la copia. ' + error.message); }
       }
@@ -453,18 +642,19 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
     try {
       if (file.size > 32 * 1024 * 1024) throw new Error('La copia supera el límite de 32 MB.');
       const incoming = Core.validateData(JSON.parse(await file.text()), BRAND);
-      const current = Core.read(localStorage, BRAND);
+      const current = cloud ? await cloud.read() : Core.read(localStorage, BRAND);
       const merged = Core.merge(current, incoming, BRAND);
       const count = merged.sales.length + merged.spend.length - current.sales.length - current.spend.length;
       if (!count) { showToast('La copia ya está importada. No se duplicaron registros.'); return; }
       if (!await requestConfirmation('Importar copia de ' + BRAND.name, `Se agregarán ${count} registros nuevos. Se conservarán los registros actuales y se omitirán duplicados idénticos. La importación incluye todas las fechas de la copia.`, 'Importar registros')) return;
-      commit(next => Object.assign(next, Core.merge(next, incoming, BRAND)));
+      await commit(next => Object.assign(next, Core.merge(next, incoming, BRAND)));
       state.editing = null;
       render();
       showToast('Copia importada sin duplicar registros.');
     } catch (error) { showToast('No se importaron datos. ' + error.message); }
   }
   function navigate(view) {
+    if (state.busy || state.loading) return;
     if (!Object.hasOwn(labels, view)) return;
     state.view = view;
     state.demo = false;
@@ -474,29 +664,56 @@ html[data-brand="hg-galvan"] h1{font-family:Cubao,'DM Sans',Arial,sans-serif}
     content.focus({preventScroll: true});
     window.scrollTo({top: 0, behavior: 'instant'});
   }
+  function loginMarkup() {
+    content.innerHTML = pageHeading('Ingresá a tu espacio.', 'Accedé con el usuario que te habilitó la agencia.') + (state.issue ? notice() : '') + '<section class="card form-card" style="max-width:420px"><h2>Acceso a ' + esc(BRAND.name) + '</h2><p class="form-caption">Tus credenciales se envían únicamente al proyecto configurado de Supabase.</p><form id="login-form"><div class="field"><label for="login-email">Correo electrónico</label><input id="login-email" name="email" type="email" autocomplete="username" required maxlength="254"></div><div class="field"><label for="login-password">Contraseña</label><input id="login-password" name="password" type="password" autocomplete="current-password" required maxlength="256"></div><button type="submit" class="button primary">Ingresar</button><p id="login-error" class="form-message" role="alert"></p></form><p class="hint">No hay registro público. Pedí el acceso o la recuperación de contraseña a la agencia.</p></section>';
+    bindCommon();
+    document.getElementById('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button');
+      if (button.disabled) return;
+      button.disabled = true;
+      const values = new FormData(form);
+      try {
+        await cloud.signIn(String(values.get('email')), String(values.get('password')));
+        await load();
+        render();
+      } catch (error) {
+        document.getElementById('login-error').textContent = error.message;
+        form.elements.password.value = '';
+        button.disabled = false;
+      }
+    });
+  }
   function render() {
     document.title = `${labels[state.view]} · ${BRAND.name}`;
     document.getElementById('view-label').textContent = labels[state.view];
     document.querySelectorAll('nav [data-view]').forEach(button => {
       const active = button.dataset.view === state.view;
       button.classList.toggle('active', active);
+      button.disabled = state.busy || state.loading || (cloudEnabled && !cloud?.session());
       if (active) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
     });
+    storageStatus();
+    if (state.loading) { content.innerHTML = '<p role="status">Abriendo los registros…</p>'; return; }
+    if (configIssue) { content.innerHTML = pageHeading('Revisar configuración', 'La conexión a la nube todavía no está lista.') + notice(); bindCommon(); return; }
+    if (cloud && !cloud.session()) { loginMarkup(); return; }
+    if (cloudEnabled && state.issue) { content.innerHTML = pageHeading('No se pudieron abrir los registros', 'Actualizá o volvé a iniciar sesión para continuar.') + notice(); bindCommon(); return; }
     if (state.view === 'dashboard') dashboard();
     else recordScreen(state.view);
   }
   document.querySelectorAll('nav [data-view]').forEach(button => button.addEventListener('click', () => navigate(button.dataset.view)));
   document.getElementById('backup-file').addEventListener('change', importFile);
   window.addEventListener('storage', event => {
+    if (cloudEnabled) return;
     if (event.key !== BRAND.storageKey && event.key !== null) return;
     const wasEditing = Boolean(state.editing);
     load();
     if (!wasEditing) render();
     showToast('Los datos cambiaron en otra pestaña.' + (wasEditing ? ' Terminá o cancelá la edición para actualizar la vista.' : ' Vista actualizada.'));
   });
-  load();
-  render();
+  load().then(render);
 })();
 </script>
 </body>

@@ -1,0 +1,18 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const target = path.resolve(__dirname, '..', 'index.html');
+const [urlValue, publishableKey] = process.argv.slice(2);
+if (!urlValue || !publishableKey) throw new Error('Uso: node nube/configurar.cjs URL_DEL_PROYECTO CLAVE_PUBLICABLE');
+const origin = new URL(urlValue);
+if (origin.protocol !== 'https:' || !/^[a-z0-9]+\.supabase\.co$/.test(origin.hostname) || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash || origin.port) throw new Error('URL de proyecto inválida.');
+if (!/^sb_publishable_[A-Za-z0-9_-]+$/.test(publishableKey)) throw new Error('Solo se admite la clave publicable; nunca una clave secreta.');
+let html = fs.readFileSync(target, 'utf8');
+const pattern = /<script>const BRAND = ([\s\S]*?);<\/script>/;
+const match = html.match(pattern);
+if (!match) throw new Error('No se encontró la configuración de esta aplicación.');
+const brand = JSON.parse(match[1]);
+brand.cloud = {url: origin.origin, publishableKey};
+html = html.replace(pattern, () => '<script>const BRAND = ' + JSON.stringify(brand) + ';</script>');
+html = html.replace(/connect-src [^;]+;/, 'connect-src ' + origin.origin + ';');
+fs.writeFileSync(target, html, 'utf8');
+process.stdout.write('Conexión configurada para ' + brand.name + '. Aún debés verificar el esquema, usuarios y permisos del proyecto.\n');
